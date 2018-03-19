@@ -2,15 +2,15 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>54fd5789-6e3f-4768-8ab5-2adf488055a2</ProjectGuid>
+    <ProjectGuid>770e9512-69b4-43de-a28d-9bb66a9bb2a9</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>holographic_reconstruction.py</StartupFile>
+    <StartupFile>semantic_segmentation.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
-    <Name>Holographic-Reconstruction</Name>
-    <RootNamespace>Holographic-Reconstruction</RootNamespace>
+    <Name>Semantic-Segmentation</Name>
+    <RootNamespace>Semantic-Segmentation</RootNamespace>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,18 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="holographic_reconstruction.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="holo_reconst_tf.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="preprocess.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="sigmoidaliser.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="semantic_segmentation.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

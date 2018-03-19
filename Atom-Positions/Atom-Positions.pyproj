@@ -2,15 +2,15 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>54fd5789-6e3f-4768-8ab5-2adf488055a2</ProjectGuid>
+    <ProjectGuid>03d65b7f-18ae-4378-8cdf-5def3912abb1</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>holographic_reconstruction.py</StartupFile>
+    <StartupFile>positions.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
-    <Name>Holographic-Reconstruction</Name>
-    <RootNamespace>Holographic-Reconstruction</RootNamespace>
+    <Name>Atom-Positions</Name>
+    <RootNamespace>Atom-Positions</RootNamespace>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,18 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="holographic_reconstruction.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="holo_reconst_tf.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="preprocess.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="sigmoidaliser.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="positions.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
