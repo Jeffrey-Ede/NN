@@ -152,8 +152,10 @@ def cnn_model_fn(features, labels, mode):
         filters=2,
         kernel_size=3,
         padding="same")
-    
-    #loss = tf.losses.mean_squared_error()
+
+    loss = tf.losses.mean_squared_error(
+        labels=labels,
+        predictions=predictions)
 
     #Configure the Training Op (for TRAIN mode)
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -161,7 +163,7 @@ def cnn_model_fn(features, labels, mode):
         optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
         
         train_op = optimizer.minimise(
-            loss=ChildProcessError,
+            loss=loss,
             global_step=tf.train.get_global_step())
         
         return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
