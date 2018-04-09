@@ -9,6 +9,10 @@ Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Semantic-Segmentation", "Se
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Atom-Positions", "Atom-Positions\Atom-Positions.pyproj", "{03D65B7F-18AE-4378-8CDF-5DEF3912ABB1}"
 EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Trajectory-Reconstruction", "Trajectory-Reconstruction\Trajectory-Reconstruction.pyproj", "{EE2BF69E-DBEA-415D-936C-02412D520A14}"
+EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Enhancer", "Enhancer\Enhancer.pyproj", "{FF7828B1-E23E-4340-A473-904849D9728C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +25,10 @@ Global
 		{770E9512-69B4-43DE-A28D-9BB66A9BB2A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{03D65B7F-18AE-4378-8CDF-5DEF3912ABB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{03D65B7F-18AE-4378-8CDF-5DEF3912ABB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EE2BF69E-DBEA-415D-936C-02412D520A14}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EE2BF69E-DBEA-415D-936C-02412D520A14}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FF7828B1-E23E-4340-A473-904849D9728C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FF7828B1-E23E-4340-A473-904849D9728C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

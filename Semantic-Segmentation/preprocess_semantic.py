@@ -54,7 +54,7 @@ if __name__ == "__main__":
             sigmoidalisation.save(proc_dir)
 
     #Sigmoidalise every file in the directory and save the sigmoidalisations
-    sizes = [668, 512, 384, 256, 192, 128]
+    sizes = [667, 512, 384, 256, 192, 128]
     save_size = 256
     for f in os.listdir(dir):
 

@@ -169,8 +169,7 @@ def cnn_model_fn(features, labels, mode):
         return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
     #Add evaluation metrics (for EVAL mode)
-    # Add these later...
-
+    #Add these later...
 
     return 1
 
