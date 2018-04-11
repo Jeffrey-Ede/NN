@@ -7,12 +7,12 @@ from __future__ import print_function
 imgOrigSize = [2048, 2048, 1] #Size of images
 
 #Addresses to save the TFRecords files to
-train_filename = '//flexo.ads.warwick.ac.uk/Shared41/Microscopy/Jeffrey-Ede/stills/train.tfrecords'
-val_filename = '//flexo.ads.warwick.ac.uk/Shared41/Microscopy/Jeffrey-Ede/stills/val.tfrecords'
-test_filename = '//flexo.ads.warwick.ac.uk/Shared41/Microscopy/Jeffrey-Ede/stills/test.tfrecords'
+train_filename = 'E:/stills/train.tfrecords'
+val_filename = 'E:/stills/val.tfrecords'
+test_filename = 'E:/stills/test.tfrecords'
 
 #Initial location of dat
-dataLoc = '//flexo.ads.warwick.ac.uk/shared39/EOL2100/2100/Users/Jeffrey-Ede/datasets/stills/'
+dataLoc = '//flexo.ads.warwick.ac.uk/Shared41/Microscopy/Jeffrey-Ede/2100plus_dm3/'
 
 ## Shuffle data addresses and separate data into training, validation and test sets
 
@@ -43,7 +43,7 @@ import cv2
 from scipy.misc import imread
 
 def load_image(addr, resizeSize=None, imgType=np.float32):
-    #Read an image and make sure it is of the correct type. Optionally resize it
+    """Read an image and make sure it is of the correct type. Optionally resize it"""
     
     img = imread(addr, mode='F')
     
@@ -54,137 +54,90 @@ def load_image(addr, resizeSize=None, imgType=np.float32):
 
     return img
 
-##Write data to tfrecord
+def write_record(addrs, filename):
+    """Write data to tfrecord"""
 
-def _bytes_feature(value):
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+    def _bytes_feature(value):
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-print(len(train_addrs))
+    #Open the TFRecords file
+    writer = tf.python_io.TFRecordWriter(filename)
 
-## 1) Training data...
-
-#Open the TFRecords file
-writer = tf.python_io.TFRecordWriter(train_filename)
-
-for i in range(len(train_addrs)):
-    #Print how many images are saved every 1000 images
-    if not i % 1000:
-        print('Train data: {}/{}'.format(i, len(train_addrs)))
+    for i in range(len(addrs)):
+        #Print how many images are saved every 1000 images
+        if not i % 20:
+            print('Train data: {}/{}'.format(i, len(addrs)))
         
-    #Load the image
-    img = load_image(train_addrs[i])
+        #Load the image
+        img = load_image(addrs[i])
 
-    #Create a feature
-    feature = {'train/image': _bytes_feature(tf.compat.as_bytes(img.tostring()))}
+        #Create a feature
+        feature = {'train/image': _bytes_feature(tf.compat.as_bytes(img.tostring()))}
 
-    #Create an example protocol buffer
-    example = tf.train.Example(features=tf.train.Features(feature=feature))
+        #Create an example protocol buffer
+        example = tf.train.Example(features=tf.train.Features(feature=feature))
     
-    #Serialize to string and write on the file
-    writer.write(example.SerializeToString())
+        #Serialize to string and write on the file
+        writer.write(example.SerializeToString())
     
-writer.close()
+    writer.close()
 
-## 2) Validation data
+    return
 
-#Open the TFRecords file
-writer = tf.python_io.TFRecordWriter(val_filename)
+#write_record(train_addrs, train_filename)
+write_record(val_addrs, val_filename)
+write_record(test_addrs, test_filename)
 
-for i in range(len(val_addrs)):
-    #Print how many images are saved every 1000 images
-    if not i % 1000:
-        print('Val data: {}/{}'.format(i, len(val_addrs)))
-        #sys.stdout.flush()
+###Read a TFRecords file
+
+#import matplotlib.pyplot as plt
+#data_path = 'train.tfrecords'  #Address to save the hdf5 file
+
+#with tf.Session() as sess:
+#    feature = {'train/image': tf.FixedLenFeature([], tf.string)}
+
+#    #Create a list of filenames and pass it to a queue
+#    filename_queue = tf.train.string_input_producer([data_path], num_epochs=1)
     
-    #Load the image
-    img = load_image(val_addrs[i])
+#    #Define a reader and read the next record
+#    reader = tf.TFRecordReader()
+#    _, serialized_example = reader.read(filename_queue)
     
-    #Create a feature
-    feature = {'val/image': _bytes_feature(tf.compat.as_bytes(img.tostring()))}
+#    #Decode the record read by the reader
+#    features = tf.parse_single_example(serialized_example, features=feature)
     
-    #Create an example protocol buffer
-    example = tf.train.Example(features=tf.train.Features(feature=feature))
+#    # Convert the image data from string back to the numbers
+#    image = tf.decode_raw(features['train/image'], tf.float32)
     
-    # Serialize to string and write on the file
-    writer.write(example.SerializeToString())
-
-writer.close()
-
-## 3) Test data
-
-#Open the TFRecords file
-writer = tf.python_io.TFRecordWriter(test_filename)
-
-for i in range(len(test_addrs)):
-    #Print how many images are saved every 1000 images
-    if not i % 1000:
-        print('Test data: {}/{}'.format(i, len(test_addrs)))
-        #sys.stdout.flush()
-
-    #Load the image
-    img = load_image(test_addrs[i])
+#    #Reshape image data into the original shape
+#    image = tf.reshape(image, imgOrigShape)
     
-    #Create a feature
-    feature = {'test/image': _bytes_feature(tf.compat.as_bytes(img.tostring()))}
+#    # Any preprocessing here ...
     
-    #Create an example protocol buffer
-    example = tf.train.Example(features=tf.train.Features(feature=feature))
+#    # Creates batches by randomly shuffling tensors
+#    images, labels = tf.train.shuffle_batch([image, label], batch_size=10, capacity=30, num_threads=1, min_after_dequeue=10)
 
-    #Serialize to string and write on the file
-    writer.write(example.SerializeToString())
+##Initialize all global and local variables
+#init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+#sess.run(init_op)
 
-writer.close()
+##Create a coordinator and run all QueueRunner objects
+#coord = tf.train.Coordinator()
 
-##Read a TFRecords file
-
-import matplotlib.pyplot as plt
-data_path = 'train.tfrecords'  #Address to save the hdf5 file
-
-with tf.Session() as sess:
-    feature = {'train/image': tf.FixedLenFeature([], tf.string)}
-
-    #Create a list of filenames and pass it to a queue
-    filename_queue = tf.train.string_input_producer([data_path], num_epochs=1)
+#threads = tf.train.start_queue_runners(coord=coord)
+#for batch_index in range(5):
+#    img = sess.run([images])
+#    img = img.astype(np.float32)
     
-    #Define a reader and read the next record
-    reader = tf.TFRecordReader()
-    _, serialized_example = reader.read(filename_queue)
-    
-    #Decode the record read by the reader
-    features = tf.parse_single_example(serialized_example, features=feature)
-    
-    # Convert the image data from string back to the numbers
-    image = tf.decode_raw(features['train/image'], tf.float32)
-    
-    #Reshape image data into the original shape
-    image = tf.reshape(image, imgOrigShape)
-    
-    # Any preprocessing here ...
-    
-    # Creates batches by randomly shuffling tensors
-    images, labels = tf.train.shuffle_batch([image, label], batch_size=10, capacity=30, num_threads=1, min_after_dequeue=10)
+#    for j in range(6):
+#        plt.subplot(2, 3, j+1)
+#        plt.imshow(img[j, ...])
 
-#Initialize all global and local variables
-init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-sess.run(init_op)
+#    plt.show()
 
-#Create a coordinator and run all QueueRunner objects
-coord = tf.train.Coordinator()
-
-threads = tf.train.start_queue_runners(coord=coord)
-for batch_index in range(5):
-    img = sess.run([images])
-    img = img.astype(np.float32)
+##Stop the threads
+#coord.request_stop()
     
-    for j in range(6):
-        plt.subplot(2, 3, j+1)
-        plt.imshow(img[j, ...])
-
-    plt.show()
-
-#Stop the threads
-coord.request_stop()
-    
-# Wait for threads to stop
-coord.join(threads)
-sess.close()
+## Wait for threads to stop
+#coord.join(threads)
+#sess.close()

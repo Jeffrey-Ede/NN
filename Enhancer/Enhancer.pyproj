@@ -24,7 +24,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="enhancer.py" />
+    <Compile Include="enhancer_models.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="img_info.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="lq_img_gen-backup.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="lq_img_gen.py">

@@ -5,20 +5,22 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
+slim = tf.contrib.slim
+
 tf.logging.set_verbosity(tf.logging.INFO)
 
 rows = cols = 256 # For simplicity during development
 channels = 1 #Greyscale input image
 
-features1 = 16 #Number of features to use for initial convolution
+features1 = 32 #Number of features to use for initial convolution
 features2 = 2*features1 #Number of features after 2nd convolution
-features3 = 2*features2 #Number of features after 3rd convolution
-features4 = 2*features3 #Number of features after 4th convolution
+features3 = 3*features2 #Number of features after 3rd convolution
+features4 = 4*features3 #Number of features after 4th convolution
 aspp_filters = features4 #Number of features for atrous convolutional spatial pyramid pooling
 
-aspp_rateSmall = 4
-aspp_rateMedium = 8
-aspp_rateLarge = 12
+aspp_rateSmall = 6
+aspp_rateMedium = 12
+aspp_rateLarge = 18
 
 tfrecords_train_filenames = ["location..."]
 tfrecords_val_filenames = ["location..."]
@@ -26,12 +28,45 @@ tfrecords_test_filenames = ["location..."]
 
 batch_size = 1 #Batch size to use during training
 
-def cnn_model_fn(features, labels, mode):
-    '''Atrous convolutional encoder-decoder noise-removing network'''
-    
-    '''Helper functions'''
-    aspp_block(input):
-        '''Atrous spatial pyramid pooling'''
+#Dimensions of images in the dataset
+height = width = 2048
+
+## Initial idea: aspp, batch norm + some PRELU, residual connection and lower feature numbers
+def cnn_model_fn_enhancer(features, labels, mode):
+    """Atrous convolutional encoder-decoder noise-removing network"""
+    phase = mode == tf.estimator.ModeKeys.TRAIN
+
+    ##Reusable blocks
+
+    def conv_block(input, filters, phase=phase):
+        """
+        Convolution -> batch normalisation -> leaky relu
+        phase defaults to true, meaning that the network is being trained
+        """
+
+        conv_block = tf.layers.conv2d(
+            inputs=input,
+            filters=filters,
+            kernel_size=3,
+            padding="same")
+
+        conv_block = tf.contrib.layers.batch_norm(
+            conv_block, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
+
+        conv_block = tf.nn.leaky_relu(
+            features=conv_block,
+            alpha=0.2)
+
+        return conv_block
+
+    def aspp_block(input, phase=phase):
+        """
+        Atrous spatial pyramid pooling
+        phase defaults to true, meaning that the network is being trained
+        """
 
         #Convolutions at multiple rates
         conv1x1 = tf.layers.conv2d(
@@ -39,6 +74,11 @@ def cnn_model_fn(features, labels, mode):
         filters=aspp_filters,
         kernel_size=1,
         padding="same")
+        conv1x1 = tf.contrib.layers.batch_norm(
+            conv1x1, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
 
         conv3x3_rateSmall = tf.layers.conv2d(
             inputs=input,
@@ -46,6 +86,11 @@ def cnn_model_fn(features, labels, mode):
             kernel_size=3,
             padding="same",
             dilation_rate=aspp_rateSmall)
+        conv3x3_rateSmall = tf.contrib.layers.batch_norm(
+            conv3x3_rateSmall, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
 
         conv3x3_rateMedium = tf.layers.conv2d(
             inputs=input,
@@ -53,6 +98,11 @@ def cnn_model_fn(features, labels, mode):
             kernel_size=3,
             padding="same",
             dilation_rate=aspp_rateMedium)
+        conv3x3_rateMedium = tf.contrib.layers.batch_norm(
+            conv3x3_rateMedium, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
 
         conv3x3_rateLarge = tf.layers.conv2d(
             inputs=input,
@@ -60,6 +110,11 @@ def cnn_model_fn(features, labels, mode):
             kernel_size=3,
             padding="same",
             dilation_rate=aspp_rateLarge)
+        conv3x3_rateLarge = tf.contrib.layers.batch_norm(
+            conv3x3_rateLarge, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
 
         #Image-level features
         pooling = tf.nn.pool(
@@ -67,80 +122,163 @@ def cnn_model_fn(features, labels, mode):
             window_shape=(2,2),
             pooling_type="AVG",
             padding="same")
+        #Use 1x1 convolutions to project into a feature space the same size as the atrous convolutions'
+        pooling = tf.layers.conv2d(
+            inputs=pooling,
+            filters=aspp_filters,
+            kernel_size=1,
+            padding="same")
+        pooling = tf.contrib.layers.batch_norm(
+            pooling, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
 
-        #Concatenate the atrous and image-level features
+        #Concatenate the atrous and image-level pooling features
         concatenation = tf.concat(
         values=[conv1x1, conv3x3_rateSmall, conv3x3_rateMedium, conv3x3_rateLarge, pooling],
         axis=axis)
 
         #Reduce the number of channels
         reduced = tf.layers.conv2d( #Not sure if this is the correct way to reshape...
-            inputs=input,
+            inputs=values,
             filters=aspp_filters,
             kernel_size=1,
             padding="same")
 
         return reduced
 
+    def split_separable_conv2d(
+        inputs,
+        filters,
+        rate=1,
+        stride=1,
+        weight_decay=0.00004,
+        depthwise_weights_initializer_stddev=0.33,
+        pointwise_weights_initializer_stddev=0.06,
+        scope=None):
+
+        """
+        Splits a separable conv2d into depthwise and pointwise conv2d.
+        This operation differs from `tf.layers.separable_conv2d` as this operation
+        applies activation function between depthwise and pointwise conv2d.
+        Args:
+        inputs: Input tensor with shape [batch, height, width, channels].
+        filters: Number of filters in the 1x1 pointwise convolution.
+        rate: Atrous convolution rate for the depthwise convolution.
+        weight_decay: The weight decay to use for regularizing the model.
+        depthwise_weights_initializer_stddev: The standard deviation of the
+            truncated normal weight initializer for depthwise convolution.
+        pointwise_weights_initializer_stddev: The standard deviation of the
+            truncated normal weight initializer for pointwise convolution.
+        scope: Optional scope for the operation.
+        Returns:
+        Computed features after split separable conv2d.
+        """
+
+        outputs = slim.separable_conv2d(
+            inputs,
+            None,
+            3,
+            strides=stride,
+            depth_multiplier=1,
+            rate=rate,
+            weights_initializer=tf.truncated_normal_initializer(
+                stddev=depthwise_weights_initializer_stddev),
+            weights_regularizer=None,
+            scope=scope + '_depthwise')
+
+        outputs = tf.contrib.layers.batch_norm(
+            outputs, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
+
+        outputs = tf.nn.leaky_relu(
+            features=outputs,
+            alpha=0.2)
+
+        outputs = slim.conv2d(
+            outputs,
+            filters,
+            kernel_size=1,
+            weights_initializer=tf.truncated_normal_initializer(
+                stddev=pointwise_weights_initializer_stddev),
+            weights_regularizer=slim.l2_regularizer(weight_decay),
+            scope=scope + '_pointwise')
+
+        return outputs
+
+    def deconv_block(input, filters, phase=phase):
+        '''Transpositionally convolute a feature space to upsample it'''
+        
+        deconv_block = tf.layers.conv2d_transpose(
+            inputs=input,
+            filters=filters,
+            kernel_size=3,
+            strides=2,
+            padding="same")
+
+        deconv_block = tf.contrib.layers.batch_norm(
+            deconv_block, 
+            center=True, scale=True, 
+            is_training=phase,
+            scope='bn')
+
+        deconv_block = tf.nn.leaky_relu(
+            features=deconv_block,
+            alpha=0.2)
+
+        return deconv_block
+
     '''Model building'''
     input_layer = tf.reshape(features["x"], [-1, rows, cols, 1])
 
-    #Encoder
-    cnn1 = tf.nn.convolution(
-        input=input_layer,
-        filter=features1,
-        padding="same",
-        activation=tf.nn.relu)
-
-    cnn1_strided = tf.layers.conv2d(
-        inputs=cnn1,
+    #Encoding block1
+    cnn1_last = conv_block(
+        input=input_layer, 
+        filters=features1)
+    cnn1_strided = split_separable_conv2d(
+        inputs=cnn1_last,
         filters=features1,
-        kernel_size=3,
-        strides=2,
-        padding='same',
-        activation=tf.nn.relu)
+        rate=2,
+        stride=2)
 
-    cnn2 = tf.nn.convolution(
+    #Encoding block 2
+    cnn2_last = conv_block(
         input=cnn1_strided,
-        filter=features2,
-        padding="same",
-        activation=tf.nn.relu)
-
-    cnn2_strided = tf.layers.conv2d(
-        inputs=cnn2,
+        aspp_filters=features2)
+    cnn2_strided = split_separable_conv2d(
+        inputs=cnn2_last,
         filters=features2,
-        kernel_size=3,
-        strides=2,
-        padding='same',
-        activation=tf.nn.relu)
+        rate=2,
+        stride=2)
 
-    cnn3 = tf.nn.convolution(
+    #Encoding block 3
+    cnn3 = conv_block(
         input=cnn2_strided,
-        filter=features3,
-        padding="same",
-        activation=tf.nn.relu)
-
-    cnn3_strided = tf.layers.conv2d(
+        aspp_filters=features3)
+    cnn3_last = conv_block(
+        input=cnn3_last,
+        aspp_filters=features3)
+    cnn3_strided = split_separable_conv2d(
         inputs=cnn3,
         filters=features3,
-        kernel_size=3,
-        strides=2,
-        padding='same',
-        activation=tf.nn.relu)
+        rate=2,
+        stride=2)
 
-    cnn4 = tf.nn.convolution(
+    #Encoding block 4
+    cnn4 = conv_block(
         input=cnn3_strided,
-        filter=features4,
-        padding="same",
-        activation=tf.nn.relu)
-
-    cnn4_strided = tf.layers.conv2d(
+        aspp_filters=features4)
+    cnn4_last = conv_block(
+        input=cnn4,
+        aspp_filters=features4)
+    cnn4_strided = split_separable_conv2d(
         inputs=cnn4,
-        filters=features3,
-        kernel_size=4,
-        strides=2,
-        padding='same',
-        activation=tf.nn.relu)
+        filters=features4,
+        rate=2,
+        stride=2)
 
     #Atrous spatial pyramid pooling
     aspp = aspp_block(cnn4_strided)
@@ -151,62 +289,39 @@ def cnn_model_fn(features, labels, mode):
     #    tf.shape(aspp)[1:3],
     #    align_corners=True)
 
-    '''Deconvolute the semantics'''
+    #Decoding block 1 (deepest)
+    deconv4 = conv_block(aspp)
+    deconv4 = conv_block(aspp)
+    deconv4 = conv_block(aspp)
+    
+    #Decoding block 2
+    deconv4to3 = deconv_block(deconv4, filters4)
     concat3 = tf.concat(
-        values=[cnn3, aspp],
+        values=[deconv4to3, cnn3_last],
         axis=axis)
+    deconv3 = conv_block(concat3, features3)
+    deconv3 = conv_block(deconv3, features3)
 
-    deconv3 = tf.layers.conv2d_transpose(
-        inputs=concat3,
-        filters=features3,
-        kernel_size=3,
-        padding="same",
-        activation=tf.nn.relu)
-
-    deconv3_strided = tf.layers.conv2d_transpose(
-        inputs=concat2,
-        filters=features2,
-        kernel_size=3,
-        strides=2,
-        padding="same",
-        activation=tf.nn.relu)
-
+    #Decoding block 3
+    deconv3to2 = deconv_block(deconv3, filters3)
     concat2 = tf.concat(
-        values=[cnn2, deconv3_strided],
+        values=[deconv3to2, cnn2_last],
         axis=axis)
-
-    deconv2 = tf.layers.conv2d_transpose(
-        inputs=concat2,
-        filters=features2,
-        kernel_size=3,
-        padding="same",
-        activation=tf.nn.relu)
-
-    deconv2_strided = tf.layers.conv2d_transpose(
-        inputs=concat2,
-        filters=features1,
-        kernel_size=3,
-        strides=2,
-        padding="same",
-        activation=tf.nn.relu)
-
+    deconv2 = conv_block(concat2, features2)
+    
+    #Decoding block 4
+    deconv2to1 = deconv_block(deconv2, filters2)
     concat1 = tf.concat(
-        values=[cnn1, deconv2_strided],
+        values=[deconv2to1, cnn1_last],
         axis=axis)
+    deconv1 = conv_block(concat1, features1)
 
-    deconv1 = tf.layers.conv2d_transpose(
-        inputs=concat1,
-        filters=features1,
-        kernel_size=3,
-        padding="same",
-        activation=tf.nn.relu)
-
+    #Create final image with 1x1 convolutions
     deconv_final = tf.layers.conv2d_transpose(
         inputs=deconv1,
         filters=1,
         kernel_size=3,
-        padding="same",
-        activation=tf.nn.relu)
+        padding="same")
 
     #Residually connect the input to the output
     output = input_layer + deconv_final
@@ -237,122 +352,123 @@ def cnn_model_fn(features, labels, mode):
     return tf.estimator.EstimatorSpec(
         mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 
-def dataset_input_fn():
-    filenames = ["/var/data/file1.tfrecord", "/var/data/file2.tfrecord"]
-    dataset = tf.data.TFRecordDataset(filenames)
+def gen_lq(img, mean):
+    '''Generate low quality image'''
 
-    # Use `tf.parse_single_example()` to extract data from a `tf.Example`
-    # protocol buffer, and perform any additional per-record preprocessing.
-    def parser(record):
-        keys_to_features = {
-            "image_data": tf.FixedLenFeature((), tf.string, default_value=""),
-            "date_time": tf.FixedLenFeature((), tf.int64, default_value=""),
-            "label": tf.FixedLenFeature((), tf.int64,
-                                        default_value=tf.zeros([], dtype=tf.int64)),
-        }
-        parsed = tf.parse_single_example(record, keys_to_features)
+    #Ensure that the seed is random
+    np.random.seed(int(np.random.rand()*(2**32-1)))
 
-        # Perform additional preprocessing on the parsed data
-        image = tf.image.decode_jpeg(parsed["image_data"])
-        image = tf.reshape(image, [299, 299, 1])
-        label = tf.cast(parsed["label"], tf.int32)
+    #Adjust the image scale so that the image has the correct average counts
+    lq = np.random.poisson(mean * (img / np.mean(img)))
+    
+    #Rescale between 0 and 1
+    min = np.min(lq)
+    lq = (lq-min) / (np.max(lq)-min)
 
-        return {"image_data": image, "date_time": parsed["date_time"]}, label
+    return lq, img
 
-    # Use `Dataset.map()` to build a pair of a feature dictionary and a label
-    # tensor for each example.
-    dataset = dataset.map(parser)
-    dataset = dataset.shuffle(buffer_size=10000)
-    dataset = dataset.batch(32)
-    dataset = dataset.repeat(num_epochs)
-    iterator = dataset.make_one_shot_iterator()
+#def dataset_input_fn():
+#    filenames = ["/var/data/file1.tfrecord", "/var/data/file2.tfrecord"]
+#    dataset = tf.data.TFRecordDataset(filenames)
 
-    # `features` is a dictionary in which each value is a batch of values for
-    # that feature; `labels` is a batch of labels.
-    features, labels = iterator.get_next()
+#    # Use `tf.parse_single_example()` to extract data from a `tf.Example`
+#    # protocol buffer, and perform any additional per-record preprocessing.
+#    def parser(record):
+#        keys_to_features = {
+#            "image_raw": tf.FixedLenFeature((), tf.string, default_value=""),
+#        }
+#        parsed = tf.parse_single_example(record, keys_to_features)
+#        tf.decode_raw(features['image_raw'], tf.uint16)
 
-    return features, labels
+#        image_shape = tf.pack([height, width, 1])
+#        image = tf.reshape(image, image_shape)
+
+#        # Perform additional preprocessing on the parsed data
+#        return image
+
+#    # Use `Dataset.map()` to build a pair of a feature dictionary and a label
+#    # tensor for each example.
+#    dataset = dataset.map(parser)
+#    dataset = dataset.shuffle(buffer_size=10000)
+#    dataset = dataset.batch(32)
+#    dataset = dataset.repeat(num_epochs)
+#    iterator = dataset.make_one_shot_iterator()
+
+#    # `features` is a dictionary in which each value is a batch of values for
+#    # that feature; `labels` is a batch of labels.
+#    features, labels = iterator.get_next()
+
+#    return features, labels
 
 def main(unused_argv):
 
-    def _deteriorate_img(img):
-    '''Create a low quality image from high quality image by using a smaller number of counts'''
-
-    return deterioration
-
-    def _deterioration_probs(hist):
-        '''Calculate training data deterioration amount probabilities'''
-
-        return probs
+    mean = 128 #Average value of pixels in low quality generated images
 
     def parser(record):
         '''Parse a TFRecord and return a training example'''
-        keys_to_features = {
-            "img": tf.FixedLenFeature((), tf.string, default_value=""),
+        features = {
+            "img_raw": tf.FixedLenFeature((), tf.string, default_value=""),
         }
-        parsed = tf.parse_single_example(record, keys_to_features)
+        parsed = tf.parse_single_example(record, features)
+        img = tf.decode_raw(parsed["img_raw"], tf.float32)
         
-        img = tf.reshape(image, [2048, 2048, 1])
+        image_shape = [height, width, 1]
+        img = tf.reshape(img, image_shape)
 
-        return deterioration, img
+        return img
 
     #Classify training, validation and test data
     train_data = tf.data.TFRecordDataset(tfrecords_train_filenames)
     val_data = tf.data.TFRecordDataset(tfrecords_val_filenames)
     test_data = tf.data.TFRecordDataset(tfrecords_test_filenames)
 
-    #Break the dataset into shards and iteratively train on the shards
-    for shard_idx in range(num_shards):
-        train_shard = train_data.shard(num_shards=num_shards, index=shard_idx)
-
     #Process records to get training examples
     train_data.map(map_func=parser)
     val_data.map(map_func=parser)
     test_data.map(map_func=parser)
+
+    #Generate data on the fly
+    train_data = train_data.map(lambda img: tuple(tf.py_func(
+        gen_lq,
+        [img, mean],
+        [tf.float32, tf.float32])))
+    val_data = val_data.map(lambda img: tuple(tf.py_func(
+        gen_lq,
+        [img, mean],
+        [tf.float32, tf.float32])))
+    test_data = test_data.map(lambda img: tuple(tf.py_func(
+        gen_lq,
+        [img, mean],
+        [tf.float32, tf.float32])))
 
     #Batch data
     train_data.batch(batch_size)
     val_data.batch(batch_size)
     test_data.batch(batch_size)
 
-    # A feedable iterator is defined by a handle placeholder and its structure. We
-    # could use the `output_types` and `output_shapes` properties of either
-    # `training_dataset` or `validation_dataset` here, because they have
-    # identical structure.
-    handle = tf.placeholder(tf.string, shape=[])
-    iterator = tf.data.Iterator.from_string_handle(
-        handle, train_data.output_types, train_data.output_shapes)
-    next_element = iterator.get_next()
+    train_iter         = train_data.make_initializable_iterator()
+    train_next_element = train_iter.get_next()
 
-    #Create feedable iterators
-    train_iter = train_data.make_one_shot_iterator()
-    val_iter = val_data.make_initializable_iterator()
-    test_iter = test_data.make_initializable_iterator()
+    val_iter         = val_data.make_initializable_iterator()
+    val_next_element = val_iter.get_next()
 
-    #Create session handles that can be evaluated to yield examples
-    train_handle = sess.run(train_iter.string_handle())
-    val_handle = sess.run(val_iter.string_handle())
-    test_handle = sess.run(test_iter.string_handle())
+    test_iter         = test_data.make_initializable_iterator()
+    test_next_element = test_iter.get_next()
 
-    ## Loop forever, alternating between training and validation.
-    #while True:
-    #    # Run 200 steps using the training dataset. Note that the training dataset is
-    #    # infinite, and we resume from where we left off in the previous `while` loop
-    #    # iteration.
-    #    for _ in range(200):
-    #        sess.run(next_element, feed_dict={handle: train_handle})
+    #Outer wrap important for batch normalisation to work
+    with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+        with tf.Session() as sess:
+            sess.run(train_iter.initializer)
 
-    #    # Run one pass over the validation dataset.
-    #    sess.run(val_iter.initializer)
-    #    for _ in range(50):
-    #        sess.run(next_element, feed_dict={handle: val_handle})
-
-    #batched_dataset = dataset.batch(batch_size)
-
-    #iterator = batched_dataset.make_one_shot_iterator()
-    #next_element = iterator.get_next()
+            while True:
+                try:
+                    elem = sess.run(train_next_element)
+                    print('Success')
+                except tf.errors.OutOfRangeError:
+                    print('End of dataset.')
+                    break
 
     return 
 
-if __main__ = "__main__":
+if __name__ == "__main__":
     tf.app.run()
