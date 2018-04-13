@@ -72,7 +72,7 @@ def write_record(addrs, filename):
         img = load_image(addrs[i])
 
         #Create a feature
-        feature = {'train/image': _bytes_feature(tf.compat.as_bytes(img.tostring()))}
+        feature = { 'image': _bytes_feature(tf.compat.as_bytes(img.tostring())) }
 
         #Create an example protocol buffer
         example = tf.train.Example(features=tf.train.Features(feature=feature))
@@ -84,7 +84,7 @@ def write_record(addrs, filename):
 
     return
 
-#write_record(train_addrs, train_filename)
+write_record(train_addrs, train_filename)
 write_record(val_addrs, val_filename)
 write_record(test_addrs, test_filename)
 

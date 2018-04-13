@@ -23,6 +23,9 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="encoder-decoder.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="enhancer.py" />
     <Compile Include="enhancer_models.py">
       <SubType>Code</SubType>
