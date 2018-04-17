@@ -8,44 +8,59 @@ import tensorflow as tf
 import cv2
 from scipy.misc import imread
 
+import time
+
 slim = tf.contrib.slim #For depthwise separable strided atrous convolutions
 
 tf.logging.set_verbosity(tf.logging.DEBUG)
 
-features1 = 1 #Number of features to use for initial convolution
+features1 = 32 #Number of features to use for initial convolution
 features2 = 2*features1 #Number of features after 2nd convolution
-features3 = 3*features2 #Number of features after 3rd convolution
-features4 = 4*features3 #Number of features after 4th convolution
+features3 = 3*features1 #Number of features after 3rd convolution
+features4 = 4*features1 #Number of features after 4th convolution
 aspp_filters = features4 #Number of features for atrous convolutional spatial pyramid pooling
 
 aspp_rateSmall = 6
 aspp_rateMedium = 12
 aspp_rateLarge = 18
 
-trainDir = "//flexo.ads.warwick.ac.uk/Shared41/Microscopy/Jeffrey-Ede/2100plus_dm3/"
-valDir = ""
-testDir = ""
+trainDir = "F:/stills_hq/train/"
+valDir = "F:/stills_hq/val/"
+testDir = "F:/stills_hq/test/"
 
-model_dir = "E:/stills/"
+modelSavePeriod = 0.005 #Train timestep in hours
+modelSavePeriod *= 3600 #Convert to s
+model_dir = "E:/models/noise1/"
 
 shuffle_buffer_size = 5000
-parallel_readers = 6
+num_parallel_calls = 7
 prefetch_buffer_size = 1
 
-batch_size = 4 #Batch size to use during training
-num_epochs = 1
+batch_size = 8 #Batch size to use during training
+num_epochs = -1 #Dataset repeats indefinitely
 
 logDir = "C:/dump/train/"
 log_every = 1 #Log every _ examples
+cumProbs = np.array([]) #Indices of the distribution plus 1 will be correspond to means
 
+#Remove extreme intensities
+removeLower = 0.01
+removeUpper = 0.01
 
+numMeans = 10
+numDynamicGrad = 1 # Number of gradients to calculate for each possible mean when dynamically updating training
+lossSmoothingBoxcarSize = 7
 
 #Dimensions of images in the dataset
 height = width = 2048
 channels = 1 #Greyscale input image
 
-## Initial idea: aspp, batch norm + Leaky PRELU, residual connection and lower feature numbers
-def architecture(features, mode):
+#Sidelength of images to feed the neural network
+cropsize = 512
+height_crop = width_crop = cropsize
+
+## Initial idea: aspp, batch norm + Leaky RELU, residual connection and lower feature numbers
+def architecture(lq, img, mode):
     """Atrous convolutional encoder-decoder noise-removing network"""
 
     phase = mode == tf.estimator.ModeKeys.TRAIN
@@ -63,16 +78,17 @@ def architecture(features, mode):
             inputs=input,
             filters=filters,
             kernel_size=3,
-            padding="same")
+            padding="SAME")
 
         conv_block = tf.contrib.layers.batch_norm(
             conv_block, 
             center=True, scale=True, 
             is_training=phase)
 
-        conv_block = tf.nn.leaky_relu(
-            features=conv_block,
-            alpha=0.2)
+        #conv_block = tf.nn.leaky_relu(
+        #    features=conv_block,
+        #    alpha=0.2)
+        conv_block = tf.nn.relu(conv_block)
 
         return conv_block
 
@@ -162,63 +178,31 @@ def architecture(features, mode):
 
         return reduced
 
-    def split_separable_conv2d(
-        inputs,
-        filters,
-        rate=1,
-        stride=1,
-        weight_decay=0.00004,
-        depthwise_weights_initializer_stddev=0.33,
-        pointwise_weights_initializer_stddev=0.06,
-        scope=''):
 
-        """
-        Splits a separable conv2d into depthwise and pointwise conv2d.
-        This operation differs from `tf.layers.separable_conv2d` as this operation
-        applies activation function between depthwise and pointwise conv2d.
-        Args:
-        inputs: Input tensor with shape [batch, height, width, channels].
-        filters: Number of filters in the 1x1 pointwise convolution.
-        rate: Atrous convolution rate for the depthwise convolution.
-        weight_decay: The weight decay to use for regularizing the model.
-        depthwise_weights_initializer_stddev: The standard deviation of the
-            truncated normal weight initializer for depthwise convolution.
-        pointwise_weights_initializer_stddev: The standard deviation of the
-            truncated normal weight initializer for pointwise convolution.
-        scope: Optional scope for the operation.
-        Returns:
-        Computed features after split separable conv2d.
-        """
-
-        outputs = slim.separable_conv2d(
-            inputs,
-            None,
-            3,
-            stride=stride,
+    def strided_conv_block(input, filters, stride, phase=phase):
+        
+        return slim.separable_convolution2d(
+            inputs=input,
+            num_outputs=filters,
+            kernel_size=3,
             depth_multiplier=1,
-            rate=rate,
-            weights_initializer=tf.truncated_normal_initializer(
-                stddev=depthwise_weights_initializer_stddev),
-            weights_regularizer=None)
+            stride=stride,
+            padding='SAME',
+            data_format='NHWC',
+            rate=1,
+            activation_fn=tf.nn.relu,
+            normalizer_fn=slim.batch_norm,
+            normalizer_params=None,
+            weights_initializer=tf.contrib.layers.xavier_initializer(),
+            weights_regularizer=None,
+            biases_initializer=tf.zeros_initializer(),
+            biases_regularizer=None,
+            reuse=None,
+            variables_collections=None,
+            outputs_collections=None,
+            trainable=True,
+            scope=None)
 
-        outputs = tf.contrib.layers.batch_norm(
-            outputs, 
-            center=True, scale=True, 
-            is_training=phase)
-
-        outputs = tf.nn.leaky_relu(
-            features=outputs,
-            alpha=0.2)
-
-        outputs = slim.conv2d(
-            outputs,
-            filters,
-            kernel_size=1,
-            weights_initializer=tf.truncated_normal_initializer(
-                stddev=pointwise_weights_initializer_stddev),
-            weights_regularizer=slim.l2_regularizer(weight_decay))
-
-        return outputs
 
     def deconv_block(input, filters, phase=phase):
         '''Transpositionally convolute a feature space to upsample it'''
@@ -235,55 +219,60 @@ def architecture(features, mode):
             center=True, scale=True, 
             is_training=phase)
 
-        deconv_block = tf.nn.leaky_relu(
-            features=deconv_block,
-            alpha=0.2)
+        #deconv_block = tf.nn.leaky_relu(
+        #    features=deconv_block,
+        #    alpha=0.2)
+        deconv_block = tf.nn.relu(deconv_block)
 
         return deconv_block
 
     '''Model building'''
-    input_layer = tf.reshape(features, [-1, height, width, channels])
+    input_layer = tf.reshape(lq, [-1, cropsize, cropsize, channels])
 
     #Encoding block 1
     cnn1_last = conv_block(
         input=input_layer, 
         filters=features1)
-    cnn1_strided = split_separable_conv2d(
-        inputs=cnn1_last,
+    cnn1_strided = strided_conv_block(
+        input=cnn1_last,
         filters=features1,
-        rate=2,
         stride=2)
 
     #Encoding block 2
     cnn2_last = conv_block(
         input=cnn1_strided,
         filters=features2)
-    cnn2_strided = split_separable_conv2d(
-        inputs=cnn2_last,
+    cnn2_strided = strided_conv_block(
+        input=cnn2_last,
         filters=features2,
-        rate=2,
         stride=2)
 
     #Encoding block 3
-    cnn3 = conv_block(
+    #cnn3 = conv_block(
+    #    input=cnn2_strided,
+    #    filters=features3)
+    #cnn3_last = conv_block(
+    #    input=cnn3,
+    #    filters=features3)
+    cnn3_last = conv_block(
         input=cnn2_strided,
         filters=features3)
-    cnn3_last = conv_block(
-        input=cnn3,
-        filters=features3)
-    cnn3_strided = split_separable_conv2d(
-        inputs=cnn3_last,
+    cnn3_strided = strided_conv_block(
+        input=cnn3_last,
         filters=features3,
-        rate=2,
         stride=2)
 
     #Encoding block 4
-    cnn4 = conv_block(
+    #cnn4 = conv_block(
+    #    input=cnn3_strided,
+    #    filters=features4)
+    #cnn4_last = conv_block(
+    #    input=cnn4,
+    #    filters=features4)
+    cnn4_last = conv_block(
         input=cnn3_strided,
         filters=features4)
-    cnn4_last = conv_block(
-        input=cnn4,
-        filters=features4)
+
     #cnn4_strided = split_separable_conv2d(
     #    inputs=cnn4_last,
     #    filters=features4,
@@ -291,7 +280,6 @@ def architecture(features, mode):
     #    stride=2)
 
     ##Atrous spatial pyramid pooling
-    #aspp = aspp_block(cnn4_strided)
 
     aspp = aspp_block(cnn4_last)
 
@@ -303,7 +291,7 @@ def architecture(features, mode):
 
     #Decoding block 1 (deepest)
     deconv4 = conv_block(aspp, features4)
-    deconv4 = conv_block(deconv4, features4)
+    #deconv4 = conv_block(deconv4, features4)
     
     #Decoding block 2
     deconv4to3 = deconv_block(deconv4, features4)
@@ -311,7 +299,7 @@ def architecture(features, mode):
         values=[deconv4to3, cnn3_last],
         axis=concat_axis)
     deconv3 = conv_block(concat3, features3)
-    deconv3 = conv_block(deconv3, features3)
+    #deconv3 = conv_block(deconv3, features3)
 
     #Decoding block 3
     deconv3to2 = deconv_block(deconv3, features3)
@@ -335,7 +323,7 @@ def architecture(features, mode):
         padding="SAME")
 
     #Residually connect the input to the output
-    output = input_layer + deconv_final
+    output = deconv_final#+input_layer
 
     #Image values will be between 0 and 1
     output = tf.clip_by_value(
@@ -359,6 +347,19 @@ def load_image(addr, resizeSize=None, imgType=np.float32):
 
     return img
 
+def scale0to1(img):
+    """Rescale image between 0 and 1"""
+
+    min = np.min(img)
+    max = np.max(img)
+
+    if min == max:
+        img.fill(0.5)
+    else:
+        img = (img-min) / (max-min)
+
+    return img.astype(np.float32)
+
 def gen_lq(img, mean):
     '''Generate low quality image'''
 
@@ -368,87 +369,181 @@ def gen_lq(img, mean):
     #Adjust the image scale so that the image has the correct average counts
     lq = np.random.poisson(mean * (img / np.mean(img)))
     
-    #Rescale between 0 and 1
-    min = np.min(lq)
-    lq = (lq-min) / (np.max(lq)-min)
+    return scale0to1(lq)
 
-    return lq.astype(np.float32)
+def flip_rotate(img):
+    """Applies a random flip || rotation to the image, possibly leaving it unchanged"""
 
-def preprocess(lq, img):
+    choice = int(8*np.random.rand())
     
-    return lq, img
+    if choice == 0:
+        return img
+    if choice == 1:
+        return np.rot90(img, 1)
+    if choice == 2:
+        return np.rot90(img, 2)
+    if choice == 3:
+        return np.rot90(img, 3)
+    if choice == 4:
+        return np.flip(img, 0)
+    if choice == 5:
+        return np.flip(img, 1)
+    if choice == 6:
+        return np.flip(np.rot90(img, 1), 0)
+    if choice == 7:
+        return np.flip(np.rot90(img, 1), 1)
 
-def parser(record, mean):
+
+def preprocess(img):
+    """
+    Threshold the image to remove dead or very bright pixels.
+    Then crop a region of the image of a random size and resize it.
+    """
+
+    sorted = np.sort(img, axis=None)
+    min = sorted[int(removeLower*sorted.size)]
+    max = sorted[int((1.0-removeUpper)*sorted.size)]
+
+    size = int(cropsize + np.random.rand()*(height-cropsize))
+    topLeft_x = int(np.random.rand()*(height-size))
+    topLeft_y = int(np.random.rand()*(height-size))
+
+    crop = np.clip(img[topLeft_y:(topLeft_y+cropsize), topLeft_x:(topLeft_x+cropsize)], min, max)
+
+    resized = cv2.resize(crop, (cropsize, cropsize), interpolation=cv2.INTER_AREA)
+
+    return scale0to1(flip_rotate(resized))
+
+def get_mean(cumProbs):
+    """Generate a mean from the cumulative probability distribution"""
+
+    r = np.random.rand()
+    idx = next(idx for idx, value in enumerate(cumProbs) if value >= r)
+
+    if idx:
+        return idx + r - cumProbs[idx-1]
+    else:
+        return 1
+
+def parser(record):
     """Parse files and generate lower quality images from them"""
 
     img = load_image(record)
+    img = preprocess(img)
+
+    mean = get_mean(cumProbs)
     lq = gen_lq(img, mean)
 
-    return preprocess(lq, img)
+    return lq, img
 
-def input_fn(dir, mean):
+def input_fn(dir):
     """Create a dataset from a list of filenames"""
 
     dataset = tf.data.Dataset.list_files(dir+"*.tif")
     dataset = dataset.shuffle(buffer_size=shuffle_buffer_size)
     dataset = dataset.map(
-        lambda file: tuple(tf.py_func(parser, [file, mean], [tf.float32, tf.float32])),
-        num_parallel_calls=FLAGS.num_parallel_calls)
+        lambda file: tuple(tf.py_func(parser, [file], [tf.float32, tf.float32])),
+        num_parallel_calls=num_parallel_calls)
     dataset = dataset.batch(batch_size=batch_size)
     dataset = dataset.prefetch(buffer_size=prefetch_buffer_size)
     dataset = dataset.repeat(num_epochs)
     
     iter = dataset.make_one_shot_iterator()
-    #with tf.Session() as sess:
-    #    next = iter.get_next()
-    #    print(sess.run(next)) #Output
-    #    img = sess.run(next)
         
     lq, img = iter.get_next()
 
     return lq, img
 
+def movingAverage(values, window):
+
+    weights = np.repeat(1.0, window)/window
+    ma = np.convolve(values, weights, 'same')
+
+    return ma
+
+def get_training_probs(losses0, losses1):
+    """
+    Returns cumulative probabilities of means being selected for loq-quality image syntheses
+    losses0 - previous losses (smoothed)
+    losses1 - losses after the current training run
+    """
+
+    diffs = movingAverage(losses1, lossSmoothingBoxcarSize) - losses0
+    diffs[diffs > 0] = 0
+    cumDiffs = np.cumsum(diffs)
+    cumProbs = cumDiffs / np.max(cumDiffs)
+
+    return cumProbs.astype(np.float32)
+
 def main(unused_argv=None):
 
-    mean = 64 #Average value of pixels in low quality generations
+    temp = set(tf.all_variables())
 
+    #with tf.device("/gpu:0"):
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS) #For batch normalisation windows
     with tf.control_dependencies(update_ops):
 
-        lq_train, img_train = input_fn(trainDir, mean)
+        lq, img = input_fn(trainDir)
 
-        loss, prediction = architecture(lq_train, tf.estimator.ModeKeys.TRAIN)
+        loss, prediction = architecture(lq, img, tf.estimator.ModeKeys.TRAIN)
         train_op = tf.train.AdamOptimizer().minimize(loss)
 
-        with tf.Session() as sess: #Alternative is tf.train.MonitoredTrainingSession()
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        #config.gpu_options.per_process_gpu_memory_fraction = 0.7
 
-            sess.run(tf.global_variables_initializer())
+        saver = tf.train.Saver(max_to_keep=-1)
+
+        tf.add_to_collection("train_op", train_op)
+        tf.add_to_collection("update_ops", update_ops)
+        with tf.Session(config=config) as sess: #Alternative is tf.train.MonitoredTrainingSession()
+
+            init = tf.global_variables_initializer()
+
+            sess.run(init)
+            sess.run(tf.initialize_variables(set(tf.all_variables()) - temp))
 
             train_writer = tf.summary.FileWriter( logDir, sess.graph )
 
             counter = 0
-            for _ in range(200):
-                counter += 1
+            saveNum = 1
 
-                merge = tf.summary.merge_all()
+            #Set up mean probabilities to be dynamically adjusted during training
+            probs = np.ones(numMeans, dtype=np.float32)
+            losses0 = probs*numDynamicGrad
+            global cumProbs
+            cumProbs = np.cumsum(probs)
+            cumProbs /= np.max(cumProbs)
 
-                summary, _, loss_value = sess.run([merge, train_op, loss])
-                print("Iter: {}, Loss: {:.4f}".format(counter, loss_value))
+            #print(tf.all_variables())
 
-                train_writer.add_summary(summary, counter)
+            while True:
+                #Train for a couple of hours
+                time0 = time.time()
+                while time.time()-time0 < modelSavePeriod:
+                    counter += 1
 
-                #train_writer.add_summary(summary, counter)
-                
-                #img = sess.run(lq_train)
+                    merge = tf.summary.merge_all()
 
-                #print(np.max(img))
+                    summary, _, loss_value = sess.run([merge, train_op, loss])
+                    print("Iter: {}, Loss: {:.4f}".format(counter, loss_value))
 
-                #cv2.namedWindow('dfsd',cv2.WINDOW_NORMAL)
-                #cv2.imshow("dfsd", img.reshape((2048,2048)))
-                #cv2.waitKey(0)
+                    train_writer.add_summary(summary, counter)
 
-                #sess.run(training_op)
+                #Save the model
+                saver.save(sess, save_path=model_dir+"model", global_step=counter)
+                saveNum += 1
 
+                #Evaluate the model and use the results to dynamically adjust the training process
+                losses = np.zeros(numMeans, dtype=np.float32)
+                for i in range(numMeans):
+                    for _ in range(numDynamicGrad):
+                        losses[i] += sess.run(loss)
+                        print(i, losses[i])
+                    losses[i] /= numDynamicGrad
+
+                cumProbs = get_training_probs(losses0, losses)
+                losses0 = losses
 
     return 
 

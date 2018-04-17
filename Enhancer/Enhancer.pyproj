@@ -30,6 +30,9 @@
     <Compile Include="enhancer_models.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="filecopy.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="img_info.py">
       <SubType>Code</SubType>
     </Compile>
