@@ -13,6 +13,8 @@ Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Trajectory-Reconstruction",
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Enhancer", "Enhancer\Enhancer.pyproj", "{FF7828B1-E23E-4340-A473-904849D9728C}"
 EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Autoencoder", "Autoencoder\Autoencoder.pyproj", "{8E682327-AD1D-4F3F-B865-EE54ED2C932B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -29,6 +31,8 @@ Global
 		{EE2BF69E-DBEA-415D-936C-02412D520A14}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FF7828B1-E23E-4340-A473-904849D9728C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FF7828B1-E23E-4340-A473-904849D9728C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E682327-AD1D-4F3F-B865-EE54ED2C932B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E682327-AD1D-4F3F-B865-EE54ED2C932B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

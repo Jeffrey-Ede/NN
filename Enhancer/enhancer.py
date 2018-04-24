@@ -390,6 +390,8 @@ def gen_lq(img, mean):
 
 def preprocess(lq, img):
     
+    
+
     return lq, img
 
 def parser(record, mean):
